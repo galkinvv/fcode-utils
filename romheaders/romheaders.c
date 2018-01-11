@@ -44,7 +44,7 @@
 
 
 char *rom=NULL;
-size_t romlen=0;
+int romlen_unparsed=0;
 
 
 /*  Prototypes for functions exported from  devsupp/pci/classcodes.c   */
@@ -191,9 +191,9 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	romlen=finfo.st_size;
+	romlen_unparsed = (int)finfo.st_size;
 
-	rom=malloc(romlen);
+	rom=malloc(romlen_unparsed);
 	if (!rom) {
 		printf("Out of memory.\n");
 		return -1;
@@ -205,7 +205,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	if (fread(rom, romlen, 1, romfile)!=1) {
+	if (fread(rom, romlen_unparsed, 1, romfile)!=1) {
 		printf("Error while reading file\n");
 		free(rom);
 		return -1;
@@ -218,8 +218,9 @@ int main(int argc, char **argv)
 	do {
 		printf("\nImage %d:\n",i);
 		if (!dump_rom_header(rom_header)) {
-			printf("Rom Header error occured. Bailing out.\n");
-			break;
+			printf("Rom Header error occured. Bailing out.\n"
+			       "Verify that there is no extra bytes before option rom.\n");
+			return -1;
 		}
 
 		pci_data = (pci_data_t *)((char *)rom_header +
@@ -227,16 +228,25 @@ int main(int argc, char **argv)
 
 		if (!dump_pci_data(pci_data)) {
 			printf("PCI Data error occured. Bailing out.\n");
-			break;
+			return -1;
 		}
 
 		dump_platform_extensions(pci_data->code_type, rom_header);
 
 		rom_header = (rom_header_t *)((char *)rom_header +
 				LITTLE_ENDIAN_WORD_FETCH(pci_data->ilen)*512);
+		romlen_unparsed -= LITTLE_ENDIAN_WORD_FETCH(pci_data->ilen)*512;
 		i++;
 	} while ((pci_data->last_image_flag&0x80)!=0x80 &&
-			(char *)rom_header < rom+(int)romlen );
+			0 < romlen_unparsed );
 
+	if (romlen_unparsed > 0)
+	{
+		printf("File has EXTRA 0x%X bytes after last image\n", romlen_unparsed);
+	}
+	if (romlen_unparsed < 0)
+	{
+		printf("Last image CUT: 0x%X more bytes expected\n", -romlen_unparsed);
+	}
 	return 0;
 }
